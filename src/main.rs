@@ -8,9 +8,9 @@ use std::env;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 5 {
-        eprint!("Usage: {}, FILE, PIXELS, UPPERLEFT, LOWERRIGHT", args[0]);
-        eprintln!("Example: {} mandel.png 1000x750 -1.20, 0.35, -1, 0.20", args[0]);
+    if args.len() != 6 {
+        eprint!("Usage: {}, FILE, PIXELS, UPPERLEFT, LOWERRIGHT MULTI ", args[0]);
+        eprintln!("Example: {} mandel.png 1000x750 -1.20, 0.35, -1, 0.20, Multi", args[0]);
         std::process::exit(1);
     }
 
@@ -20,13 +20,37 @@ fn main() {
         .expect("error parsing upper left corner point");
     let lower_right = parse_complex(&args[4])
         .expect("error parsing lower right corner point");
+    let multi = parse_multi(&args[5])
+        .expect("error parsing multi argument - can only be 'Single' or 'Multi'");
 
     let mut pixels = vec![0; bounds.0 * bounds.1];
-    render(&mut pixels, bounds, upper_left, lower_right);
+
+    match multi {
+        true => render_multi(&mut pixels, bounds, upper_left, lower_right),
+        false => render_single(&mut pixels, bounds, upper_left, lower_right)
+    }    
 
     write_image(&args[1], &pixels, bounds)
         .expect("error writing png file");
 }
+
+fn parse_multi(arg: &str) -> Option<bool> {
+    match arg {
+        "Multi" => Some(true),
+        "Single" => Some(false),
+        _ => None
+    }
+}
+
+#[test]
+fn test_parse_multi()
+{
+    assert_eq!(parse_multi("Single"), Some(false));
+    assert_eq!(parse_multi("Multi"), Some(true));
+    assert_eq!(parse_multi("FooBar"), None);
+    assert_eq!(parse_multi(""), None);
+}
+
 
 /// Try to determine if 'c' is in the Mandelbrot set, using at most 'limit'
 /// iterations to decide.
@@ -145,6 +169,44 @@ fn render(pixels:&mut [u8],
                 };
         }
     }
+}
+
+fn render_single(pixels:&mut [u8],
+    bounds: (usize, usize),
+    upper_left: Complex<f64>,
+    lower_right: Complex<f64>)
+{
+    render(pixels, bounds, upper_left, lower_right);
+}
+
+fn render_multi(pixels:&mut [u8],
+    bounds: (usize, usize),
+    upper_left: Complex<f64>,
+    lower_right: Complex<f64>)
+{
+    let threads = num_cpus::get();
+    let rows_per_band = bounds.1 / threads + 1;
+    println!("Running multithreaded with {threads} threads");
+
+    let bands: Vec<&mut [u8]> = 
+        pixels.chunks_mut(rows_per_band * bounds.0).collect();
+    
+    crossbeam::scope(|spawner|{
+        for (i, band) in bands.into_iter().enumerate() {
+            let top = rows_per_band * i;
+            let height = band.len() / bounds.0;
+            let band_bounds = (bounds.0, height);
+            let band_upper_left =
+                pixel_to_point(bounds, (0,top), upper_left, lower_right);
+            let band_lower_right = 
+                pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
+            spawner.spawn(move |_| {
+                render(band, band_bounds, band_upper_left, band_lower_right);
+            });
+        }
+
+    }).unwrap();
+   
 }
 
 /// Write the buffer 'pixels', whose dimensions are given by 'bounds', to the

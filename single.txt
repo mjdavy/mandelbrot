@@ -1,0 +1,14 @@
+
+[32;1mDays              : [0m0
+[32;1mHours             : [0m0
+[32;1mMinutes           : [0m0
+[32;1mSeconds           : [0m5
+[32;1mMilliseconds      : [0m389
+[32;1mTicks             : [0m53895335
+[32;1mTotalDays         : [0m6.23788599537037E-05
+[32;1mTotalHours        : [0m0.00149709263888889
+[32;1mTotalMinutes      : [0m0.0898255583333333
+[32;1mTotalSeconds      : [0m5.3895335
+[32;1mTotalMilliseconds : [0m5389.5335
+
+
