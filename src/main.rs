@@ -1,8 +1,6 @@
 use num::Complex;
 use std::str::FromStr;
-use image::ColorType;
-use image::png::{PNGEncoder};
-use std::fs::File;
+use image::{RgbImage, Rgb};
 use std::env;
 
 fn main() {
@@ -23,14 +21,14 @@ fn main() {
     let multi = parse_multi(&args[5])
         .expect("error parsing multi argument - can only be 'Single' or 'Multi'");
 
-    let mut pixels = vec![0; bounds.0 * bounds.1];
+    let mut pixels = RgbImage::new(bounds.0 as u32, bounds.1 as u32);
 
     match multi {
-        true => render_multi(&mut pixels, bounds, upper_left, lower_right),
+        true => render_single(&mut pixels, bounds, upper_left, lower_right), // TODO - call render_multi when fixed
         false => render_single(&mut pixels, bounds, upper_left, lower_right)
     }    
 
-    write_image(&args[1], &pixels, bounds)
+    pixels.save(&args[1])
         .expect("error writing png file");
 }
 
@@ -49,8 +47,8 @@ fn test_parse_multi()
     assert_eq!(parse_multi("Multi"), Some(true));
     assert_eq!(parse_multi("FooBar"), None);
     assert_eq!(parse_multi(""), None);
-}
 
+}
 
 /// Try to determine if 'c' is in the Mandelbrot set, using at most 'limit'
 /// iterations to decide.
@@ -152,34 +150,51 @@ fn test_pixel_to_point() {
 /// which holds one grayscale pixel per byte. The 'upper_left' and 'lower_right'
 /// arguments specify points on the complex plane corresponding to the upper-left
 ///  and lower-right corners of the pixel buffer
-fn render(pixels:&mut [u8],
+fn render(pixels:&mut RgbImage,
           bounds: (usize, usize),
           upper_left: Complex<f64>,
           lower_right: Complex<f64>)
 {
-    assert!(pixels.len() == bounds.0 * bounds.1);
+    assert!(pixels.len() == bounds.0 * bounds.1 * 3);
 
     for row in 0..bounds.1 {
         for column in 0..bounds.0 {
             let point = pixel_to_point(bounds, (column,row), upper_left, lower_right);
-            pixels[row * bounds.0 + column] = 
-                match escape_time(point,255) {
-                    None => 0,
-                    Some(count) => 255 - count as u8
-                };
+            let pixel_value = match escape_time(point,255) {
+                None => 0,
+                Some(count) => 255 - count as u8
+            };
+           
+            let pixel_color = map_color(pixel_value);
+            pixels.put_pixel(column as u32, row as u32, pixel_color);
         }
     }
 }
 
-fn render_single(pixels:&mut [u8],
+fn map_color(value: u8) -> image::Rgb<u8>
+{
+    match value {
+        0 => Rgb([0,0,0]),
+        1..=35 => Rgb([148, 0, 211]),       // Violet
+        36..=70 => Rgb([75, 0, 130]),       // Indigo
+        71..=105 => Rgb([0, 0, 255]),       // Blue
+        106..=140 => Rgb([0, 255, 0]),      // Green
+        141..=175 => Rgb([255, 255, 0]),    // Yellow
+        176..=210 => Rgb([255, 127, 0]),    // Orange
+        211..=254 => Rgb([255, 0, 0]),      // Red
+        255 => Rgb([255,255,255])           // White
+    }
+}
+
+fn render_single(pixels:&mut RgbImage,
     bounds: (usize, usize),
     upper_left: Complex<f64>,
     lower_right: Complex<f64>)
 {
     render(pixels, bounds, upper_left, lower_right);
 }
-
-fn render_multi(pixels:&mut [u8],
+/*
+fn render_multi(pixels:&mut RgbImage,
     bounds: (usize, usize),
     upper_left: Complex<f64>,
     lower_right: Complex<f64>)
@@ -188,9 +203,8 @@ fn render_multi(pixels:&mut [u8],
     let rows_per_band = bounds.1 / threads + 1;
     println!("Running multithreaded with {threads} threads");
 
-    let bands: Vec<&mut [u8]> = 
-        pixels.chunks_mut(rows_per_band * bounds.0).collect();
-    
+    let bands = pixels.chunks_mut(rows_per_band); 
+
     crossbeam::scope(|spawner|{
         for (i, band) in bands.into_iter().enumerate() {
             let top = rows_per_band * i;
@@ -208,19 +222,5 @@ fn render_multi(pixels:&mut [u8],
     }).unwrap();
    
 }
+*/
 
-/// Write the buffer 'pixels', whose dimensions are given by 'bounds', to the
-/// file named 'filename'
-fn write_image(filename:&str, pixels: &[u8], bounds: (usize, usize)) 
--> Result<(), std::io::Error>
-{
-    let output = File::create(filename)?;
-
-    let encoder = PNGEncoder::new(output);
-    encoder.encode(pixels, 
-            bounds.0 as u32, 
-            bounds.1 as u32, 
-            ColorType::Gray(8))?;           
-
-    Ok(())
-}
