@@ -193,34 +193,5 @@ fn render_single(pixels:&mut RgbImage,
 {
     render(pixels, bounds, upper_left, lower_right);
 }
-/*
-fn render_multi(pixels:&mut RgbImage,
-    bounds: (usize, usize),
-    upper_left: Complex<f64>,
-    lower_right: Complex<f64>)
-{
-    let threads = num_cpus::get();
-    let rows_per_band = bounds.1 / threads + 1;
-    println!("Running multithreaded with {threads} threads");
 
-    let bands = pixels.chunks_mut(rows_per_band); 
-
-    crossbeam::scope(|spawner|{
-        for (i, band) in bands.into_iter().enumerate() {
-            let top = rows_per_band * i;
-            let height = band.len() / bounds.0;
-            let band_bounds = (bounds.0, height);
-            let band_upper_left =
-                pixel_to_point(bounds, (0,top), upper_left, lower_right);
-            let band_lower_right = 
-                pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
-            spawner.spawn(move |_| {
-                render(band, band_bounds, band_upper_left, band_lower_right);
-            });
-        }
-
-    }).unwrap();
-   
-}
-*/
 
