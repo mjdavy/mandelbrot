@@ -2,6 +2,9 @@ use num::Complex;
 use std::str::FromStr;
 use image::{RgbImage, Rgb};
 use std::env;
+use rayon::prelude::*;
+
+const ELEMENT_BYTES:usize = 3;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -12,7 +15,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let bounds = parse_pair(&args[2], 'x')
+    let bounds:(u32,u32) = parse_pair(&args[2], 'x')
         .expect("error parsing image dimensions");
     let upper_left = parse_complex(&args[3])
         .expect("error parsing upper left corner point");
@@ -21,11 +24,11 @@ fn main() {
     let multi = parse_multi(&args[5])
         .expect("error parsing multi argument - can only be 'Single' or 'Multi'");
 
-    let mut pixels = RgbImage::new(bounds.0 as u32, bounds.1 as u32);
+    let mut pixels = RgbImage::new(bounds.0, bounds.1);
 
     match multi {
-        true => render_single(&mut pixels, bounds, upper_left, lower_right), // TODO - call render_multi when fixed
-        false => render_single(&mut pixels, bounds, upper_left, lower_right)
+        true => render_multi(&mut pixels, upper_left, lower_right), 
+        false => render_single(&mut pixels, upper_left, lower_right)
     }    
 
     pixels.save(&args[1])
@@ -150,15 +153,15 @@ fn test_pixel_to_point() {
 /// which holds one grayscale pixel per byte. The 'upper_left' and 'lower_right'
 /// arguments specify points on the complex plane corresponding to the upper-left
 ///  and lower-right corners of the pixel buffer
-fn render(pixels:&mut RgbImage,
-          bounds: (usize, usize),
+fn render_single(pixels:&mut RgbImage,
           upper_left: Complex<f64>,
           lower_right: Complex<f64>)
 {
-    assert!(pixels.len() == bounds.0 * bounds.1 * 3);
+    assert!(pixels.len() == pixels.width() as usize * pixels.height() as usize* ELEMENT_BYTES);
+    let bounds = (pixels.width() as usize, pixels.height() as usize); 
 
-    for row in 0..bounds.1 {
-        for column in 0..bounds.0 {
+    for row in 0..pixels.height() as usize {
+        for column in 0..pixels.width() as usize {
             let point = pixel_to_point(bounds, (column,row), upper_left, lower_right);
             let pixel_value = match escape_time(point,255) {
                 None => 0,
@@ -170,6 +173,62 @@ fn render(pixels:&mut RgbImage,
         }
     }
 }
+
+fn process_image(pixels:&mut [u8], 
+    bounds:(usize,usize), 
+    upper_left: Complex<f64>,
+    lower_right: Complex<f64>)
+{
+    let mut offset = 0;
+    for r in 0..bounds.1  { 
+        offset = offset + r;
+        for c in 0..bounds.0 {
+            let point = pixel_to_point(bounds, (c,r), upper_left, lower_right);
+            let pixel_value = match escape_time(point,255) {
+                None => 0,
+                Some(count) => 255 - count as u8
+            };
+            let pixel_color = map_color(pixel_value);
+
+            for x in 0..ELEMENT_BYTES {
+                pixels[offset + x] = pixel_color[x];
+            }
+            offset = offset + ELEMENT_BYTES;
+        }
+    }
+}
+
+/// Render concurrently using multiple threads. Number of threads is determined
+/// By hardware capabilties using num_cpus
+/// To concurrently update multiple pixels, we need to work on the underlying
+/// buffer because RgbImage does not have a suitable mutable construct.
+/// These means that we need to know how many bytes per pixer are being used
+/// Currently this is a hard coded constant ELEMENT_BYTE to allow for RGB
+/// An enhancement would be to extract this info from the RgbImage and make the 
+/// calculation dynamic - MJDTODO
+fn render_multi(pixels:&mut RgbImage,
+    upper_left: Complex<f64>,
+    lower_right: Complex<f64>)
+{
+    println!("Running multithreaded with Rayon");
+    let bounds = (pixels.width() as usize, pixels.height() as usize);
+    let width = pixels.width() as usize;
+
+    let bands: Vec<(usize, &mut [u8])> = 
+        pixels.chunks_mut(width * ELEMENT_BYTES)
+        .enumerate()
+        .collect();
+    
+    bands.into_par_iter()
+        .for_each(|(i, band)| {
+            let top = i;
+            let band_bounds = (bounds.0, 1); // One row 
+            let band_upper_left = pixel_to_point(bounds, (0,top), upper_left, lower_right);
+            let band_lower_right = pixel_to_point(bounds, (bounds.0, top + 1), upper_left, lower_right);
+            process_image(band, band_bounds, band_upper_left, band_lower_right);
+        });
+}
+
 
 fn map_color(value: u8) -> image::Rgb<u8>
 {
@@ -184,14 +243,6 @@ fn map_color(value: u8) -> image::Rgb<u8>
         211..=254 => Rgb([255, 0, 0]),      // Red
         255 => Rgb([255,255,255])           // White
     }
-}
-
-fn render_single(pixels:&mut RgbImage,
-    bounds: (usize, usize),
-    upper_left: Complex<f64>,
-    lower_right: Complex<f64>)
-{
-    render(pixels, bounds, upper_left, lower_right);
 }
 
 
